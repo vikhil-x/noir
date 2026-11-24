@@ -25,6 +25,15 @@ const noirAPI = {
   setLayout: (layout) => ipcRenderer.send('layout:update', layout),
   setViewVisible: (visible) => ipcRenderer.send('view:setVisible', visible),
 
+  // Adblocker
+  getAdblockStats: () => ipcRenderer.invoke('adblock:getStats'),
+  toggleAdblock: (enabled) => ipcRenderer.invoke('adblock:toggle', enabled),
+  onAdblockCount: (callback) => {
+    const sub = (_, count) => callback(count);
+    ipcRenderer.on('adblock:count', sub);
+    return () => ipcRenderer.removeListener('adblock:count', sub);
+  },
+
   // Events
   onTabUpdated: (callback) => {
     const sub = (_, tab) => callback(tab);

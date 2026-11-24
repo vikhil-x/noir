@@ -1,4 +1,6 @@
-import { app, BrowserWindow, WebContentsView, ipcMain } from 'electron'
+import { app, BrowserWindow, WebContentsView, ipcMain, session } from 'electron'
+import { ElectronBlocker } from '@ghostery/adblocker-electron'
+import fetch from 'cross-fetch'
 import { fileURLToPath } from 'url'
 import path from 'path'
 
@@ -24,6 +26,11 @@ app.commandLine.appendSwitch('enable-zero-copy')
 
 let mainWindow: BrowserWindow | null = null
 
+// Native Adblocker Engine state
+let blocker: ElectronBlocker | null = null
+let isAdblockEnabled = true
+let adblockCount = 0
+
 interface TabData {
   id: string
   view: WebContentsView
@@ -45,6 +52,23 @@ let layoutState = {
   isImmersion: false,
   sidebarWidth: 260,
   topbarHeight: 44
+}
+
+async function setupAdblocker() {
+  try {
+    blocker = await ElectronBlocker.fromPrebuiltAdsAndTracking(fetch)
+    blocker.config.loadCosmeticFilters = false
+    if (isAdblockEnabled) {
+      blocker.enableBlockingInSession(session.defaultSession)
+    }
+    blocker.on('request-blocked', () => {
+      adblockCount++
+      mainWindow?.webContents.send('adblock:count', adblockCount)
+    })
+    console.log('[Adblocker] Native WebAssembly adblocker loaded into session')
+  } catch (err) {
+    console.error('[Adblocker] Failed to initialize adblocker:', err)
+  }
 }
 
 function createWindow() {
@@ -306,12 +330,10 @@ function closeTab(tabId: string): boolean {
 
 // IPC Handlers
 ipcMain.on('window:minimize', () => {
-  console.log('[Main] minimize window')
   mainWindow?.minimize()
 })
 
 ipcMain.on('window:maximize', () => {
-  console.log('[Main] toggle maximize')
   if (mainWindow?.isMaximized()) {
     mainWindow.unmaximize()
   } else {
@@ -320,14 +342,12 @@ ipcMain.on('window:maximize', () => {
 })
 
 ipcMain.on('window:close', () => {
-  console.log('[Main] close window')
   mainWindow?.close()
 })
 
 ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized() ?? false)
 
 ipcMain.handle('tab:create', (_, { url, spaceId, pinned }) => {
-  console.log('[Main] create tab:', url)
   return createTab(url, spaceId, pinned)
 })
 
@@ -335,7 +355,6 @@ ipcMain.handle('tab:switch', (_, id: string) => switchTab(id))
 ipcMain.handle('tab:close', (_, id: string) => closeTab(id))
 
 ipcMain.handle('tab:navigate', (_, { id, url }) => {
-  console.log('[Main] navigate tab:', id, url)
   let tab = tabs.get(id)
   if (!tab) {
     return createTab(url, 'space_1', false)
@@ -384,6 +403,24 @@ ipcMain.on('view:setVisible', (_, visible: boolean) => {
   }
 })
 
+// Native Adblocker IPC Handlers
+ipcMain.handle('adblock:getStats', () => ({
+  enabled: isAdblockEnabled,
+  count: adblockCount
+}))
+
+ipcMain.handle('adblock:toggle', (_, enabled: boolean) => {
+  isAdblockEnabled = enabled
+  if (blocker) {
+    if (isAdblockEnabled) {
+      blocker.enableBlockingInSession(session.defaultSession)
+    } else {
+      blocker.disableBlockingInSession(session.defaultSession)
+    }
+  }
+  return isAdblockEnabled
+})
+
 app.on('second-instance', () => {
   if (mainWindow) {
     if (mainWindow.isMinimized()) mainWindow.restore()
@@ -391,10 +428,10 @@ app.on('second-instance', () => {
   }
 })
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   createWindow()
+  await setupAdblocker()
 
-  // Clean startup: NO default google page! Starts clean on AMOLED canvas!
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

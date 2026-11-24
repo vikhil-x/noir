@@ -35,6 +35,11 @@ export interface NoirAPI {
   setLayout: (layout: { isSidebarOpen: boolean; isImmersion: boolean }) => void
   setViewVisible: (visible: boolean) => void
   
+  // Adblocker
+  getAdblockStats: () => Promise<{ enabled: boolean; count: number }>
+  toggleAdblock: (enabled: boolean) => Promise<boolean>
+  onAdblockCount: (callback: (count: number) => void) => () => void
+  
   onTabUpdated: (callback: (tab: TabInfo) => void) => () => void
   onTabActivated: (callback: (tabId: string) => void) => () => void
   onTabClosed: (callback: (tabId: string) => void) => () => void

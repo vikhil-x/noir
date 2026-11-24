@@ -17,7 +17,9 @@ import {
   Moon,
   Maximize2,
   FolderDown,
-  ArrowRight
+  ArrowRight,
+  ShieldCheck,
+  ShieldAlert
 } from 'lucide-react'
 import { TabInfo } from './types/noir'
 
@@ -48,6 +50,11 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [isMaximized, setIsMaximized] = useState(false)
 
+  // Native Adblocker Shield State
+  const [adblockCount, setAdblockCount] = useState(0)
+  const [isAdblockEnabled, setIsAdblockEnabled] = useState(true)
+  const [showShieldPopup, setShowShieldPopup] = useState(false)
+
   const urlInputRef = useRef<HTMLInputElement>(null)
   const activeTab = tabs.find(t => t.id === activeTabId)
 
@@ -61,8 +68,8 @@ export default function App() {
 
   // Hide/Show WebContentsView when modal is open
   useEffect(() => {
-    window.noirAPI?.setViewVisible(!showSettings)
-  }, [showSettings])
+    window.noirAPI?.setViewVisible(!showSettings && !showShieldPopup)
+  }, [showSettings, showShieldPopup])
 
   // Sync address bar text when active tab changes
   useEffect(() => {
@@ -104,6 +111,15 @@ export default function App() {
 
     window.noirAPI.isMaximized().then(setIsMaximized)
 
+    window.noirAPI.getAdblockStats().then(stats => {
+      setIsAdblockEnabled(stats.enabled)
+      setAdblockCount(stats.count)
+    })
+
+    const unsubAdblock = window.noirAPI.onAdblockCount((count: number) => {
+      setAdblockCount(count)
+    })
+
     // Global shortcut handlers forwarded from Electron before-input-event
     const unsubSwitchSpace = window.noirAPI.onShortcut('shortcut:switchSpace', (spaceIndex: number) => {
       setSpaces(currentSpaces => {
@@ -141,6 +157,7 @@ export default function App() {
       unsubCloseTab()
       unsubToggleSidebar()
       unsubToggleImmersion()
+      unsubAdblock()
     }
   }, [activeTabId])
 
@@ -176,6 +193,7 @@ export default function App() {
         if (activeTabId) handleCloseTab(activeTabId)
       } else if (e.key === 'Escape') {
         setShowSettings(false)
+        setShowShieldPopup(false)
       }
     }
 
@@ -337,6 +355,77 @@ export default function App() {
           >
             <Maximize2 size={14} />
           </button>
+
+          {/* Native Adblocker Shield Button */}
+          <div className="relative">
+            <button
+              onClick={() => setShowShieldPopup(prev => !prev)}
+              className={`h-7 px-2 rounded-full flex items-center gap-1.5 text-xs transition-all cursor-pointer border ${
+                isAdblockEnabled
+                  ? 'bg-[#0E0E0E] border-white/10 text-white/80 hover:border-noir-red/60 hover:text-white'
+                  : 'bg-[#150A0A] border-noir-red/40 text-noir-red'
+              }`}
+              title="Native Ad & Tracker Shield"
+            >
+              {isAdblockEnabled ? (
+                <ShieldCheck size={13} className="text-noir-red shrink-0" />
+              ) : (
+                <ShieldAlert size={13} className="text-white/40 shrink-0" />
+              )}
+              <span className="font-dot text-[10px] tracking-wider">{adblockCount}</span>
+            </button>
+
+            {/* Shield Dropdown Modal */}
+            {showShieldPopup && (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="absolute top-9 right-0 w-64 acrylic-popup rounded-xl p-3.5 z-50 space-y-3 shadow-2xl"
+              >
+                <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-noir-red animate-pulse" />
+                    <span className="font-dot text-xs tracking-wider font-bold">NOIR SHIELD</span>
+                  </div>
+                  <button
+                    onClick={() => setShowShieldPopup(false)}
+                    className="text-white/40 hover:text-white p-0.5"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-white/60">Protection</span>
+                    <button
+                      onClick={async () => {
+                        if (window.noirAPI) {
+                          const updated = await window.noirAPI.toggleAdblock(!isAdblockEnabled)
+                          setIsAdblockEnabled(updated)
+                        }
+                      }}
+                      className={`px-2 py-0.5 rounded text-[10px] font-dot tracking-wider cursor-pointer border transition-colors ${
+                        isAdblockEnabled
+                          ? 'bg-noir-red border-noir-red text-white'
+                          : 'bg-white/5 border-white/10 text-white/40 hover:text-white'
+                      }`}
+                    >
+                      {isAdblockEnabled ? 'ACTIVE' : 'PAUSED'}
+                    </button>
+                  </div>
+
+                  <div className="p-2.5 rounded-lg bg-black/40 border border-white/5 text-center space-y-1">
+                    <div className="font-dot text-xl text-white font-bold tracking-widest">{adblockCount}</div>
+                    <div className="text-[9px] font-mono text-white/40">TRACKERS & ADS BLOCKED</div>
+                  </div>
+
+                  <p className="text-[9px] font-mono text-white/30 leading-relaxed">
+                    Engine: WebAssembly EasyList & anti-tracking packet filter. Zero extensions required.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Settings */}
           <button
